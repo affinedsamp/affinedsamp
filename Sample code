@@ -1,0 +1,1551 @@
+define MAX_METRO_STATIONS                      13
+#define METRO_TIME_STOP                         10000
+#define METRO_TIME_DELAY                        30000
+#define METRO_TICKET_PRICE                      50
+
+static const Float:metro_enter_pos[MAX_METRO_STATIONS][3] = {
+        {1810.8765, -1877.1888, 13.5839}, // Unity
+        {1585.6698, -2286.6060, 13.5396}, // Airport
+        {1416.1969, -1662.7063, 13.5469}, // Pershing Square
+        {937.9420, -1736.9058, 13.5469}, // Verona Beach
+        {477.3788, -1762.0093, 5.5290}, // Santa Maria Beach
+        {575.7296, -1419.6672, 14.4687}, // Rodeo
+        {1220.0338, -1428.4200, 13.3714}, // Market Square
+        {1544.1118, -1151.7020, 24.0703}, // Commercial Area
+        {1831.7992, -1302.0525, 13.6033}, // Glen Park
+        {2235.8618, -1125.7218, 25.7969}, // Jefferson
+        {2521.3247, -1300.5614, 34.8516}, // East Side
+        {2652.5598, -1628.5577, 10.8807}, // LS Forum
+        {2323.3357, -1956.5929, 13.5699} // Willowfield
+};
+static const Float:metro_exit_pos[MAX_METRO_STATIONS][4] = {
+        {1813.4556, -1877.1926, 13.5704, 270.00}, // Unity
+        {1583.5385, -2286.5608, 13.5396, 90.00}, // Airport
+        {1417.9331, -1662.7446, 13.5469, 270.00}, // Pershing Square
+        {935.7811, -1736.8323, 13.5469, 90.00}, // Verona Beach
+        {477.3500, -1764.1151, 5.5333, 190.00}, // Santa Maria Beach
+        {575.2502, -1417.6353, 14.4702, 11.00}, // Rodeo
+        {1220.0323, -1426.2465, 13.3380, 0.00}, // Market Square
+        {1544.2295, -1154.1808, 24.0781, 180.00}, // Commercial Area
+        {1834.3058, -1302.1033, 13.5979, 270.00}, // Glen Park
+        {2234.6318, -1127.9963, 25.7969, 150.00}, // Jefferson
+        {2518.2205, -1300.5613, 34.8516, 90.00}, // East Side
+        {2649.9888, -1628.5851, 10.8807, 90.00}, // LS Forum
+        {2321.2300, -1956.6156, 13.5662, 90.00} // Willowfield
+};
+static const metro_name[MAX_METRO_STATIONS][] = {
+        "Unity",
+        "Airport",
+        "Pershing Square",
+        "Verona Beach",
+        "Santa Maria Beach",
+        "Rodeo",
+        "Market Square",
+        "Commercial Area",
+        "Glen Park",
+        "Jefferson",
+        "East Side",
+        "Los Santos Forum",
+        "Willowfield"
+};
+new metro_pickup[MAX_METRO_STATIONS];
+new metro_timer[MAX_PLAYERS];
+new PlayerText:metro_map_PTD[MAX_PLAYERS][31];
+new PlayerText:metro_stop_PTD[MAX_PLAYERS][9];
+
+hook OnGameModeInit()
+{
+        LoadMapping();
+        for(new i; i < MAX_METRO_STATIONS; i++)
+        {
+                metro_pickup[i] = CreateDynamicPickup(19132, 23,
+                        metro_enter_pos[i][0], metro_enter_pos[i][1], metro_enter_pos[i][2]-0.3,
+                        0, 0, -1, 100.0);
+                CreateDynamicMapIcon(
+                        metro_enter_pos[i][0], metro_enter_pos[i][1], metro_enter_pos[i][2],
+                        56, 0, 0, 0, -1, 100.0);
+                new string[95];
+                format(string, sizeof(string), "Станция метро \" %s \"\n\
+                        {FFFFFF}Для взаимодействия нажите {FFA436}\" ALT \"", metro_name[i]);
+                CreateDynamic3DTextLabel(string, 0xFFA436FF, 
+                        metro_enter_pos[i][0], metro_enter_pos[i][1], metro_enter_pos[i][2]+0.6, 
+                        13.0, INVALID_PLAYER_ID, INVALID_PLAYER_ID, 1, 0, 0, -1, 100.0);
+        }
+}
+
+hook OnPlayerKeyStateChange(playerid, newkeys, oldkeys)
+{
+        OnPlayerEnterMetro(playerid, newkeys);
+        OnPlayerLeaveMetro(playerid, newkeys);
+}
+
+hook OnPlayerClickPlayerTextDraw(playerid, PlayerText:playertextid)
+{
+        OnPlayerClickOnMetroMap(playerid, playertextid);
+}
+
+hook OnPlayerClickTextDraw(playerid, Text:clickedid)
+{
+        if(GetPVarInt(playerid, "PlayerSelectTD") == 1)
+        {
+                if(_:clickedid == INVALID_TEXT_DRAW) SelectTextDraw(playerid, 0xFFFFFF16);
+        }
+}
+
+stock OnPlayerEnterMetro(playerid, newkeys)
+{
+        if(newkeys & KEY_WALK)
+        {
+                for(new i; i < MAX_METRO_STATIONS; i++)
+                {
+                        if(IsPlayerInRangeOfPoint(playerid, 1.5, 
+                                metro_enter_pos[i][0], 
+                                metro_enter_pos[i][1],
+                                metro_enter_pos[i][2]))
+                        {
+                                CreateMetroMapTextdraw(playerid);
+                                PlayerTextDrawSetSelectable(playerid, metro_map_PTD[playerid][i+3], false);
+                                CreateMetroStopTextdraw(playerid);
+                                PlayerTextDrawSetString(playerid, metro_stop_PTD[playerid][3], metro_name[i]);
+                                SelectTextDraw(playerid, 0xFFFFFF16);
+                                SetPVarInt(playerid, "MetroStation", i+1);
+                                SetPVarInt(playerid, "PlayerSelectTD", 1);
+                                for(new a; a < sizeof(metro_map_PTD[]); a++)
+                                        PlayerTextDrawShow(playerid, metro_map_PTD[playerid][a]);
+                        }
+                }
+        }
+}
+
+stock OnPlayerLeaveMetro(playerid, newkeys)
+{
+        if(newkeys & KEY_NO)
+        {
+                if(GetPVarInt(playerid, "MetroStop") == 1)
+                {
+                        new metro_station_num = GetPVarInt(playerid, "MetroStation");
+                        SetPlayerPos(playerid, 
+                                metro_exit_pos[metro_station_num-1][0], 
+                                metro_exit_pos[metro_station_num-1][1], 
+                                metro_exit_pos[metro_station_num-1][2]);
+                        SetPlayerVirtualWorld(playerid, 0);
+                        SetPlayerFacingAngle(playerid, metro_exit_pos[metro_station_num-1][3]);
+                        ClearAnimations(playerid);
+                        TogglePlayerControllable(playerid, true);
+                        SetCameraBehindPlayer(playerid);
+                        DeleteMetroStopTextdraw(playerid);
+                        KillTimer(metro_timer[playerid]);
+                        metro_timer[playerid] = -1;
+                        metro_station_num = -1;
+                        DeletePVar(playerid, "MetroStop");
+                        DeletePVar(playerid, "MetroStation");
+                        DeletePVar(playerid, "PlayerGoingOnLine");
+                }
+        }
+}
+
+stock OnPlayerClickOnMetroMap(playerid, PlayerText:playertextid)
+{
+        if(playertextid == metro_map_PTD[playerid][29]) // закрыть ТД
+        {
+                DeleteMetroMapTextdraw(playerid);
+                DeleteMetroStopTextdraw(playerid);
+                DeletePVar(playerid, "PlayerSelectTD");
+                DeletePVar(playerid, "MetroStation");
+        }
+        if(playertextid == metro_map_PTD[playerid][3]) // Unity 
+        {
+                new metro_station_num = GetPVarInt(playerid, "MetroStation");
+                switch(metro_station_num)
+                {
+                        case 2..7: SetPVarInt(playerid, "PlayerGoingOnLine", 1);
+                        default: SetPVarInt(playerid, "PlayerGoingOnLine", 2);
+                }
+                OnPlayerSelectStation(playerid, metro_station_num);
+                DeleteMetroMapTextdraw(playerid);
+        }
+        if(playertextid == metro_map_PTD[playerid][4]) // Airport
+        {
+                new metro_station_num = GetPVarInt(playerid, "MetroStation");
+                switch(metro_station_num)
+                {
+                        case 3..8: SetPVarInt(playerid, "PlayerGoingOnLine", 1);
+                        default: SetPVarInt(playerid, "PlayerGoingOnLine", 2);
+                }
+                OnPlayerSelectStation(playerid, metro_station_num);
+                DeleteMetroMapTextdraw(playerid);
+        }
+        if(playertextid == metro_map_PTD[playerid][5]) // Pershing Square
+        {
+                new metro_station_num = GetPVarInt(playerid, "MetroStation");
+                switch(metro_station_num)
+                {
+                        case 4..10: SetPVarInt(playerid, "PlayerGoingOnLine", 1);
+                        default: SetPVarInt(playerid, "PlayerGoingOnLine", 2);
+                }
+                OnPlayerSelectStation(playerid, metro_station_num);
+                DeleteMetroMapTextdraw(playerid);
+        }
+        if(playertextid == metro_map_PTD[playerid][6]) // Verona Beach
+        {
+                new metro_station_num = GetPVarInt(playerid, "MetroStation");
+                switch(metro_station_num)
+                {
+                        case 5..11: SetPVarInt(playerid, "PlayerGoingOnLine", 1);
+                        default: SetPVarInt(playerid, "PlayerGoingOnLine", 2);
+                }
+                OnPlayerSelectStation(playerid, metro_station_num);
+                DeleteMetroMapTextdraw(playerid);
+        }
+        if(playertextid == metro_map_PTD[playerid][7]) // Santa Maria Beach
+        {
+                new metro_station_num = GetPVarInt(playerid, "MetroStation");
+                switch(metro_station_num)
+                {
+                        case 6..11: SetPVarInt(playerid, "PlayerGoingOnLine", 1);
+                        default: SetPVarInt(playerid, "PlayerGoingOnLine", 2);
+                }
+                OnPlayerSelectStation(playerid, metro_station_num);
+                DeleteMetroMapTextdraw(playerid);
+        }
+        if(playertextid == metro_map_PTD[playerid][8]) // Rodeo
+        {
+                new metro_station_num = GetPVarInt(playerid, "MetroStation");
+                switch(metro_station_num)
+                {
+                        case 7..12: SetPVarInt(playerid, "PlayerGoingOnLine", 1);
+                        default: SetPVarInt(playerid, "PlayerGoingOnLine", 2);
+                }
+                OnPlayerSelectStation(playerid, metro_station_num);
+                DeleteMetroMapTextdraw(playerid);
+        }
+        if(playertextid == metro_map_PTD[playerid][9]) // Market Square
+        {
+                new metro_station_num = GetPVarInt(playerid, "MetroStation");
+                switch(metro_station_num)
+                {
+                        case 8..13: SetPVarInt(playerid, "PlayerGoingOnLine", 1);
+                        default: SetPVarInt(playerid, "PlayerGoingOnLine", 2);
+                }
+                OnPlayerSelectStation(playerid, metro_station_num);
+                DeleteMetroMapTextdraw(playerid);
+        }
+        if(playertextid == metro_map_PTD[playerid][10]) // Commercial Area
+        {
+                new metro_station_num = GetPVarInt(playerid, "MetroStation");
+                switch(metro_station_num)
+                {
+                        case 1,9..13: SetPVarInt(playerid, "PlayerGoingOnLine", 1);
+                        default: SetPVarInt(playerid, "PlayerGoingOnLine", 2);
+                }
+                OnPlayerSelectStation(playerid, metro_station_num);
+                DeleteMetroMapTextdraw(playerid);
+        }
+        if(playertextid == metro_map_PTD[playerid][11]) // Glen Park
+        {
+                new metro_station_num = GetPVarInt(playerid, "MetroStation");
+                switch(metro_station_num)
+                {
+                        case 1,2,10..13: SetPVarInt(playerid, "PlayerGoingOnLine", 1);
+                        default: SetPVarInt(playerid, "PlayerGoingOnLine", 2);
+                }
+                OnPlayerSelectStation(playerid, metro_station_num);
+                DeleteMetroMapTextdraw(playerid);
+        }
+        if(playertextid == metro_map_PTD[playerid][12]) // Jefferson
+        {
+                new metro_station_num = GetPVarInt(playerid, "MetroStation");
+                switch(metro_station_num)
+                {
+                        case 1..3,11..13: SetPVarInt(playerid, "PlayerGoingOnLine", 1);
+                        default: SetPVarInt(playerid, "PlayerGoingOnLine", 2);
+                }
+                OnPlayerSelectStation(playerid, metro_station_num);
+                DeleteMetroMapTextdraw(playerid);
+        }
+        if(playertextid == metro_map_PTD[playerid][13]) // East Side
+        {
+                new metro_station_num = GetPVarInt(playerid, "MetroStation");
+                switch(metro_station_num)
+                {
+                        case 1..4,12,13: SetPVarInt(playerid, "PlayerGoingOnLine", 1);
+                        default: SetPVarInt(playerid, "PlayerGoingOnLine", 2);
+                }
+                OnPlayerSelectStation(playerid, metro_station_num);
+                DeleteMetroMapTextdraw(playerid);
+        }
+        if(playertextid == metro_map_PTD[playerid][14]) // LS Forum
+        {
+                new metro_station_num = GetPVarInt(playerid, "MetroStation");
+                switch(metro_station_num)
+                {
+                        case 1..5,13: SetPVarInt(playerid, "PlayerGoingOnLine", 1);
+                        default: SetPVarInt(playerid, "PlayerGoingOnLine", 2);
+                }
+                OnPlayerSelectStation(playerid, metro_station_num);
+                DeleteMetroMapTextdraw(playerid);
+        }
+        if(playertextid == metro_map_PTD[playerid][15]) // Willowfield
+        {
+                new metro_station_num = GetPVarInt(playerid, "MetroStation");
+                switch(metro_station_num)
+                {
+                        case 1..6: SetPVarInt(playerid, "PlayerGoingOnLine", 1);
+                        default: SetPVarInt(playerid, "PlayerGoingOnLine", 2);
+                }
+                OnPlayerSelectStation(playerid, metro_station_num);
+                DeleteMetroMapTextdraw(playerid);
+        }
+}
+
+stock OnPlayerSelectStation(playerid, metro_station_num)
+{
+        new metro_player_on_line = GetPVarInt(playerid, "PlayerGoingOnLine");
+        switch(metro_player_on_line)
+        {
+                case 1: // против часовой стрелки
+                {
+                        switch(metro_station_num)
+                        {
+                                case 1: PlayerTextDrawSetString(
+                                        playerid, metro_stop_PTD[playerid][5], metro_name[12]);
+                                case 2..13: PlayerTextDrawSetString(
+                                        playerid, metro_stop_PTD[playerid][5], metro_name[metro_station_num-2]);
+                        }
+                }
+                case 2: // по часовой стрелке
+                {
+                        switch(metro_station_num)
+                        {
+                                case 1..12: PlayerTextDrawSetString(
+                                        playerid, metro_stop_PTD[playerid][5], metro_name[metro_station_num]);
+                                case 13: PlayerTextDrawSetString(
+                                        playerid, metro_stop_PTD[playerid][5], metro_name[0]);
+                        }
+                }
+        }
+        for(new i; i < sizeof(metro_stop_PTD[]); i++)
+                PlayerTextDrawShow(playerid, metro_stop_PTD[playerid][i]);
+        SetPlayerPos(playerid, 3584.7244, 541.0466, 1519.5316);
+        SetPlayerFacingAngle(playerid, 270.0);
+        TogglePlayerControllable(playerid, false);
+        ApplyAnimation(playerid, "ped", "SEAT_idle" ,4.1,1,0,0,0,0,0);
+        SetPlayerCameraPos(playerid, 3586.4244, 541.0466, 1520.0316);
+        SetPlayerCameraLookAt(playerid, 3584.7244, 541.0466, 1519.5316);
+        GivePlayerMoney(playerid, -METRO_TICKET_PRICE);
+        SetPlayerVirtualWorld(playerid, playerid+1);
+        SetPVarInt(playerid, "MetroStop", 1);
+        DeletePVar(playerid, "PlayerSelectTD");
+        metro_timer[playerid] = SetTimerEx("MetroStantionStop", METRO_TIME_STOP, false, "d", playerid);
+}
+
+forward MetroStantionStop(playerid);
+public MetroStantionStop(playerid)
+{
+        DeletePVar(playerid, "MetroStop");
+        KillTimer(metro_timer[playerid]);
+        metro_timer[playerid] = -1;
+        PlayerTextDrawHide(playerid, metro_stop_PTD[playerid][7]);
+        PlayerTextDrawHide(playerid, metro_stop_PTD[playerid][8]);
+        PlayerTextDrawSetString(playerid, metro_stop_PTD[playerid][7], "ожидайте_прибытия_поезда");
+        PlayerTextDrawSetString(playerid, metro_stop_PTD[playerid][8], "на_станцию");
+        PlayerTextDrawShow(playerid, metro_stop_PTD[playerid][7]);
+        PlayerTextDrawShow(playerid, metro_stop_PTD[playerid][8]);
+        new metro_player_on_line = GetPVarInt(playerid, "PlayerGoingOnLine");
+        new metro_station_num = GetPVarInt(playerid, "MetroStation");
+        switch(metro_player_on_line)
+        {
+                case 1: // против часовой стрелки
+                {
+                        switch(metro_station_num)
+                        {
+                                case 1:
+                                {
+                                        SetPVarInt(playerid, "MetroStation", metro_station_num +12);
+                                        metro_timer[playerid] = SetTimerEx(
+                                                "MetroStantionOnGoing", METRO_TIME_DELAY, false, "d", playerid);
+                                        return false;
+                                }
+                                case 2..13:
+                                {
+                                        SetPVarInt(playerid, "MetroStation", metro_station_num -1);
+                                        metro_timer[playerid] = SetTimerEx(
+                                                "MetroStantionOnGoing", METRO_TIME_DELAY, false, "d", playerid);
+                                        return false;
+                                }
+                        }
+                }
+                case 2: // по часовой стрелки
+                {
+                        switch(metro_station_num)
+                        {
+                                case 1..13: 
+                                {
+                                        SetPVarInt(playerid, "MetroStation", metro_station_num +1);
+                                        metro_timer[playerid] = SetTimerEx(
+                                                "MetroStantionOnGoing", METRO_TIME_DELAY, false, "d", playerid);
+                                        return false;
+                                }
+                        }
+                }
+        }
+        return true;
+}
+
+forward MetroStantionOnGoing(playerid);
+public MetroStantionOnGoing(playerid)
+{
+        KillTimer(metro_timer[playerid]);
+        metro_timer[playerid] = -1;
+        SetPVarInt(playerid, "MetroStop", 1);
+        PlayerTextDrawHide(playerid, metro_stop_PTD[playerid][3]);
+        PlayerTextDrawHide(playerid, metro_stop_PTD[playerid][5]);
+        PlayerTextDrawHide(playerid, metro_stop_PTD[playerid][7]);
+        PlayerTextDrawHide(playerid, metro_stop_PTD[playerid][8]);
+        PlayerTextDrawSetString(playerid, metro_stop_PTD[playerid][7], "нажмите__'n'");
+        PlayerTextDrawSetString(playerid, metro_stop_PTD[playerid][8], "если_хотите_выйти_здесь");
+        new metro_player_on_line = GetPVarInt(playerid, "PlayerGoingOnLine");
+        new metro_station_num = GetPVarInt(playerid, "MetroStation");
+        switch(metro_player_on_line)
+        {
+                case 1:
+                {
+                        switch(metro_station_num)  // против часовой стрелки
+                        {
+                                case 1: PlayerTextDrawSetString(playerid, metro_stop_PTD[playerid][5], metro_name[12]),
+                                        PlayerTextDrawSetString(playerid, metro_stop_PTD[playerid][3], metro_name[metro_station_num -1]);
+                                case 2..13: PlayerTextDrawSetString(playerid, metro_stop_PTD[playerid][5], metro_name[metro_station_num-2]),
+                                        PlayerTextDrawSetString(playerid, metro_stop_PTD[playerid][3], metro_name[metro_station_num-1]);
+
+                        }
+                }
+                case 2:
+                {
+                        switch(metro_station_num)  // по часовой стрелки
+                        { 
+                                case 1..12: PlayerTextDrawSetString(playerid, metro_stop_PTD[playerid][5], metro_name[metro_station_num]),
+                                        PlayerTextDrawSetString(playerid, metro_stop_PTD[playerid][3], metro_name[metro_station_num -1]);
+                                case 13: PlayerTextDrawSetString(playerid, metro_stop_PTD[playerid][5], metro_name[0]),
+                                        PlayerTextDrawSetString(playerid, metro_stop_PTD[playerid][3], metro_name[metro_station_num -1]);
+
+                        }
+                }
+        }
+        PlayerTextDrawShow(playerid, metro_stop_PTD[playerid][3]);
+        PlayerTextDrawShow(playerid, metro_stop_PTD[playerid][5]);
+        PlayerTextDrawShow(playerid, metro_stop_PTD[playerid][7]);
+        PlayerTextDrawShow(playerid, metro_stop_PTD[playerid][8]);
+        metro_timer[playerid] = SetTimerEx("MetroStantionStop", METRO_TIME_STOP, false, "d", playerid);
+        return true;
+}
+
+stock CreateMetroMapTextdraw(playerid)
+{
+        metro_map_PTD[playerid][0] = CreatePlayerTextDraw(playerid, 295.0000, 90.0000, "Box"); // пусто
+        PlayerTextDrawLetterSize(playerid, metro_map_PTD[playerid][0], 0.0000, 35.0000);
+        PlayerTextDrawTextSize(playerid, metro_map_PTD[playerid][0], 635.0000, 0.0000);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][0], 1);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][0], -1);
+        PlayerTextDrawUseBox(playerid, metro_map_PTD[playerid][0], 1);
+        PlayerTextDrawBoxColor(playerid, metro_map_PTD[playerid][0], -801552641);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][0], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][0], 1);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][0], 1);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][0], 0);
+
+        metro_map_PTD[playerid][1] = CreatePlayerTextDraw(playerid, 297.0000, 110.0000, "samaps:gtasamapbit4"); // пусто
+        PlayerTextDrawTextSize(playerid, metro_map_PTD[playerid][1], 336.0000, 292.0000);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][1], 1);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][1], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][1], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][1], 4);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][1], 0);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][1], 0);
+
+        metro_map_PTD[playerid][2] = CreatePlayerTextDraw(playerid, 301.0000, 90.0000, "метрополитен_города_лос_сантос"); // пусто
+        PlayerTextDrawLetterSize(playerid, metro_map_PTD[playerid][2], 0.3919, 1.7057);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][2], 1);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][2], -1);
+        PlayerTextDrawSetOutline(playerid, metro_map_PTD[playerid][2], 1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][2], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][2], 2);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][2], 1);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][2], 0);
+
+        metro_map_PTD[playerid][3] = CreatePlayerTextDraw(playerid, 497.0000, 289.0000, "hud:radar_light"); // пусто
+        PlayerTextDrawTextSize(playerid, metro_map_PTD[playerid][3], 7.0000, 7.0000);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][3], 1);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][3], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][3], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][3], 4);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][3], 0);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][3], 0);
+        PlayerTextDrawSetSelectable(playerid, metro_map_PTD[playerid][3], true);
+
+        metro_map_PTD[playerid][4] = CreatePlayerTextDraw(playerid, 471.0000, 328.0000, "hud:radar_light"); // пусто
+        PlayerTextDrawTextSize(playerid, metro_map_PTD[playerid][4], 7.0000, 7.0000);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][4], 1);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][4], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][4], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][4], 4);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][4], 0);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][4], 0);
+        PlayerTextDrawSetSelectable(playerid, metro_map_PTD[playerid][4], true);
+
+        metro_map_PTD[playerid][5] = CreatePlayerTextDraw(playerid, 454.0000, 269.0000, "hud:radar_light"); // пусто
+        PlayerTextDrawTextSize(playerid, metro_map_PTD[playerid][5], 7.0000, 7.0000);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][5], 1);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][5], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][5], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][5], 4);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][5], 0);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][5], 0);
+        PlayerTextDrawSetSelectable(playerid, metro_map_PTD[playerid][5], true);
+
+        metro_map_PTD[playerid][6] = CreatePlayerTextDraw(playerid, 398.0000, 275.0000, "hud:radar_light"); // пусто
+        PlayerTextDrawTextSize(playerid, metro_map_PTD[playerid][6], 7.0000, 7.0000);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][6], 1);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][6], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][6], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][6], 4);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][6], 0);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][6], 0);
+        PlayerTextDrawSetSelectable(playerid, metro_map_PTD[playerid][6], true);
+
+        metro_map_PTD[playerid][7] = CreatePlayerTextDraw(playerid, 346.0000, 278.0000, "hud:radar_light"); // пусто
+        PlayerTextDrawTextSize(playerid, metro_map_PTD[playerid][7], 7.0000, 7.0000);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][7], 1);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][7], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][7], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][7], 4);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][7], 0);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][7], 0);
+        PlayerTextDrawSetSelectable(playerid, metro_map_PTD[playerid][7], true);
+
+        metro_map_PTD[playerid][8] = CreatePlayerTextDraw(playerid, 358.0000, 245.0000, "hud:radar_light"); // пусто
+        PlayerTextDrawTextSize(playerid, metro_map_PTD[playerid][8], 7.0000, 7.0000);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][8], 1);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][8], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][8], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][8], 4);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][8], 0);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][8], 0);
+        PlayerTextDrawSetSelectable(playerid, metro_map_PTD[playerid][8], true);
+
+        metro_map_PTD[playerid][9] = CreatePlayerTextDraw(playerid, 430.0000, 243.0000, "hud:radar_light"); // пусто
+        PlayerTextDrawTextSize(playerid, metro_map_PTD[playerid][9], 7.0000, 7.0000);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][9], 1);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][9], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][9], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][9], 4);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][9], 0);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][9], 0);
+        PlayerTextDrawSetSelectable(playerid, metro_map_PTD[playerid][9], true);
+
+        metro_map_PTD[playerid][10] = CreatePlayerTextDraw(playerid, 466.0000, 219.0000, "hud:radar_light"); // пусто
+        PlayerTextDrawTextSize(playerid, metro_map_PTD[playerid][10], 7.0000, 7.0000);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][10], 1);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][10], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][10], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][10], 4);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][10], 0);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][10], 0);
+        PlayerTextDrawSetSelectable(playerid, metro_map_PTD[playerid][10], true);
+
+        metro_map_PTD[playerid][11] = CreatePlayerTextDraw(playerid, 500.0000, 233.0000, "hud:radar_light"); // пусто
+        PlayerTextDrawTextSize(playerid, metro_map_PTD[playerid][11], 7.0000, 7.0000);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][11], 1);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][11], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][11], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][11], 4);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][11], 0);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][11], 0);
+        PlayerTextDrawSetSelectable(playerid, metro_map_PTD[playerid][11], true);
+
+        metro_map_PTD[playerid][12] = CreatePlayerTextDraw(playerid, 544.0000, 217.0000, "hud:radar_light"); // пусто
+        PlayerTextDrawTextSize(playerid, metro_map_PTD[playerid][12], 7.0000, 7.0000);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][12], 1);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][12], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][12], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][12], 4);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][12], 0);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][12], 0);
+        PlayerTextDrawSetSelectable(playerid, metro_map_PTD[playerid][12], true);
+
+        metro_map_PTD[playerid][13] = CreatePlayerTextDraw(playerid, 590.0000, 233.0000, "hud:radar_light"); // пусто
+        PlayerTextDrawTextSize(playerid, metro_map_PTD[playerid][13], 7.0000, 7.0000);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][13], 1);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][13], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][13], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][13], 4);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][13], 0);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][13], 0);
+        PlayerTextDrawSetSelectable(playerid, metro_map_PTD[playerid][13], true);
+
+        metro_map_PTD[playerid][14] = CreatePlayerTextDraw(playerid, 589.0000, 265.0000, "hud:radar_light"); // пусто
+        PlayerTextDrawTextSize(playerid, metro_map_PTD[playerid][14], 7.0000, 7.0000);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][14], 1);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][14], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][14], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][14], 4);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][14], 0);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][14], 0);
+        PlayerTextDrawSetSelectable(playerid, metro_map_PTD[playerid][14], true);
+
+        metro_map_PTD[playerid][15] = CreatePlayerTextDraw(playerid, 553.0000, 297.0000, "hud:radar_light"); // пусто
+        PlayerTextDrawTextSize(playerid, metro_map_PTD[playerid][15], 7.0000, 7.0000);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][15], 1);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][15], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][15], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][15], 4);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][15], 0);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][15], 0);
+        PlayerTextDrawSetSelectable(playerid, metro_map_PTD[playerid][15], true);
+
+        metro_map_PTD[playerid][16] = CreatePlayerTextDraw(playerid, 500.0000, 280.0000, metro_name[0]); // пусто
+        PlayerTextDrawLetterSize(playerid, metro_map_PTD[playerid][16], 0.1985, 0.9902);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][16], 2);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][16], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][16], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][16], 1);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][16], 1);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][16], 1);
+
+        metro_map_PTD[playerid][17] = CreatePlayerTextDraw(playerid, 474.0000, 319.0000, metro_name[1]); // пусто
+        PlayerTextDrawLetterSize(playerid, metro_map_PTD[playerid][17], 0.1985, 0.9902);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][17], 2);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][17], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][17], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][17], 1);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][17], 1);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][17], 1);
+
+        metro_map_PTD[playerid][18] = CreatePlayerTextDraw(playerid, 458.0000, 260.0000, metro_name[2]); // пусто
+        PlayerTextDrawLetterSize(playerid, metro_map_PTD[playerid][18], 0.1985, 0.9902);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][18], 2);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][18], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][18], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][18], 1);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][18], 1);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][18], 1);
+
+        metro_map_PTD[playerid][19] = CreatePlayerTextDraw(playerid, 401.0000, 267.0000, metro_name[3]); // пусто
+        PlayerTextDrawLetterSize(playerid, metro_map_PTD[playerid][19], 0.1985, 0.9902);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][19], 2);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][19], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][19], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][19], 1);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][19], 1);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][19], 1);
+
+        metro_map_PTD[playerid][20] = CreatePlayerTextDraw(playerid, 349.0000, 269.0000, metro_name[4]); // пусто
+        PlayerTextDrawLetterSize(playerid, metro_map_PTD[playerid][20], 0.1985, 0.9902);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][20], 2);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][20], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][20], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][20], 1);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][20], 1);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][20], 1);
+
+        metro_map_PTD[playerid][21] = CreatePlayerTextDraw(playerid, 362.0000, 237.0000, metro_name[5]); // пусто
+        PlayerTextDrawLetterSize(playerid, metro_map_PTD[playerid][21], 0.1985, 0.9902);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][21], 2);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][21], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][21], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][21], 1);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][21], 1);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][21], 1);
+
+        metro_map_PTD[playerid][22] = CreatePlayerTextDraw(playerid, 434.0000, 235.0000, metro_name[6]); // пусто
+        PlayerTextDrawLetterSize(playerid, metro_map_PTD[playerid][22], 0.1985, 0.9902);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][22], 2);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][22], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][22], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][22], 1);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][22], 1);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][22], 1);
+
+        metro_map_PTD[playerid][23] = CreatePlayerTextDraw(playerid, 468.0000, 211.0000, metro_name[7]); // пусто
+        PlayerTextDrawLetterSize(playerid, metro_map_PTD[playerid][23], 0.1985, 0.9902);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][23], 2);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][23], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][23], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][23], 1);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][23], 1);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][23], 1);
+
+        metro_map_PTD[playerid][24] = CreatePlayerTextDraw(playerid, 504.0000, 225.0000, metro_name[8]); // пусто
+        PlayerTextDrawLetterSize(playerid, metro_map_PTD[playerid][24], 0.1985, 0.9902);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][24], 2);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][24], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][24], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][24], 1);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][24], 1);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][24], 1);
+
+        metro_map_PTD[playerid][25] = CreatePlayerTextDraw(playerid, 547.0000, 209.0000, metro_name[9]); // пусто
+        PlayerTextDrawLetterSize(playerid, metro_map_PTD[playerid][25], 0.1985, 0.9902);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][25], 2);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][25], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][25], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][25], 1);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][25], 1);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][25], 1);
+
+        metro_map_PTD[playerid][26] = CreatePlayerTextDraw(playerid, 593.0000, 225.0000, metro_name[10]); // пусто
+        PlayerTextDrawLetterSize(playerid, metro_map_PTD[playerid][26], 0.1985, 0.9902);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][26], 2);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][26], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][26], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][26], 1);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][26], 1);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][26], 1);
+
+        metro_map_PTD[playerid][27] = CreatePlayerTextDraw(playerid, 590.0000, 257.0000, metro_name[11]); // пусто
+        PlayerTextDrawLetterSize(playerid, metro_map_PTD[playerid][27], 0.1985, 0.9902);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][27], 2);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][27], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][27], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][27], 1);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][27], 1);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][27], 1);
+
+        metro_map_PTD[playerid][28] = CreatePlayerTextDraw(playerid, 556.0000, 288.0000, metro_name[12]); // пусто
+        PlayerTextDrawLetterSize(playerid, metro_map_PTD[playerid][28], 0.1985, 0.9902);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][28], 2);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][28], -1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][28], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][28], 1);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][28], 1);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][28], 1);
+
+        metro_map_PTD[playerid][29] = CreatePlayerTextDraw(playerid, 607.0000, 84.0000, "LD_BEAT:chit"); // пусто
+        PlayerTextDrawTextSize(playerid, metro_map_PTD[playerid][29], 30.0000, 30.0000);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][29], 1);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][29], 255);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][29], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][29], 4);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][29], 0);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][29], 0);
+        PlayerTextDrawSetSelectable(playerid, metro_map_PTD[playerid][29], true);
+
+        metro_map_PTD[playerid][30] = CreatePlayerTextDraw(playerid, 617.0000, 90.0000, "X"); // пусто
+        PlayerTextDrawLetterSize(playerid, metro_map_PTD[playerid][30], 0.4004, 1.6062);
+        PlayerTextDrawAlignment(playerid, metro_map_PTD[playerid][30], 1);
+        PlayerTextDrawColor(playerid, metro_map_PTD[playerid][30], -1);
+        PlayerTextDrawSetOutline(playerid, metro_map_PTD[playerid][30], 1);
+        PlayerTextDrawBackgroundColor(playerid, metro_map_PTD[playerid][30], 255);
+        PlayerTextDrawFont(playerid, metro_map_PTD[playerid][30], 2);
+        PlayerTextDrawSetProportional(playerid, metro_map_PTD[playerid][30], 1);
+        PlayerTextDrawSetShadow(playerid, metro_map_PTD[playerid][30], 0);
+}
+
+stock DeleteMetroMapTextdraw(playerid)
+{
+        CancelSelectTextDraw(playerid);
+        for(new i; i < sizeof(metro_map_PTD[]); i++)
+                PlayerTextDrawDestroy(playerid, metro_map_PTD[playerid][i]);
+}
+
+stock CreateMetroStopTextdraw(playerid)
+{
+        metro_stop_PTD[playerid][0] = CreatePlayerTextDraw(playerid, 11.0000, 344.0000, "Box"); // пусто
+        PlayerTextDrawLetterSize(playerid, metro_stop_PTD[playerid][0], 0.0000, 10.0000);
+        PlayerTextDrawTextSize(playerid, metro_stop_PTD[playerid][0], 197.0000, 0.0000);
+        PlayerTextDrawAlignment(playerid, metro_stop_PTD[playerid][0], 1);
+        PlayerTextDrawColor(playerid, metro_stop_PTD[playerid][0], -1);
+        PlayerTextDrawUseBox(playerid, metro_stop_PTD[playerid][0], 1);
+        PlayerTextDrawBoxColor(playerid, metro_stop_PTD[playerid][0], -801552641);
+        PlayerTextDrawBackgroundColor(playerid, metro_stop_PTD[playerid][0], 255);
+        PlayerTextDrawFont(playerid, metro_stop_PTD[playerid][0], 1);
+        PlayerTextDrawSetProportional(playerid, metro_stop_PTD[playerid][0], 1);
+        PlayerTextDrawSetShadow(playerid, metro_stop_PTD[playerid][0], 0);
+
+        metro_stop_PTD[playerid][1] = CreatePlayerTextDraw(playerid, 12.0000, 345.0000, "LD_SPAC:white"); // пусто
+        PlayerTextDrawTextSize(playerid, metro_stop_PTD[playerid][1], 184.0000, 87.0000);
+        PlayerTextDrawAlignment(playerid, metro_stop_PTD[playerid][1], 1);
+        PlayerTextDrawColor(playerid, metro_stop_PTD[playerid][1], 255);
+        PlayerTextDrawBackgroundColor(playerid, metro_stop_PTD[playerid][1], 255);
+        PlayerTextDrawFont(playerid, metro_stop_PTD[playerid][1], 4);
+        PlayerTextDrawSetProportional(playerid, metro_stop_PTD[playerid][1], 0);
+        PlayerTextDrawSetShadow(playerid, metro_stop_PTD[playerid][1], 0);
+
+        metro_stop_PTD[playerid][2] = CreatePlayerTextDraw(playerid, 11.0000, 362.0000, "LD_SPAC:white"); // пусто
+        PlayerTextDrawTextSize(playerid, metro_stop_PTD[playerid][2], 185.0000, 4.0000);
+        PlayerTextDrawAlignment(playerid, metro_stop_PTD[playerid][2], 1);
+        PlayerTextDrawColor(playerid, metro_stop_PTD[playerid][2], -801552641);
+        PlayerTextDrawBackgroundColor(playerid, metro_stop_PTD[playerid][2], 255);
+        PlayerTextDrawFont(playerid, metro_stop_PTD[playerid][2], 4);
+        PlayerTextDrawSetProportional(playerid, metro_stop_PTD[playerid][2], 0);
+        PlayerTextDrawSetShadow(playerid, metro_stop_PTD[playerid][2], 0);
+
+        metro_stop_PTD[playerid][3] = CreatePlayerTextDraw(playerid, 105.0000, 345.0000, "Santa_Maria_Beach"); // пусто
+        PlayerTextDrawLetterSize(playerid, metro_stop_PTD[playerid][3], 0.4000, 1.6000);
+        PlayerTextDrawAlignment(playerid, metro_stop_PTD[playerid][3], 2);
+        PlayerTextDrawColor(playerid, metro_stop_PTD[playerid][3], -5963521);
+        PlayerTextDrawSetOutline(playerid, metro_stop_PTD[playerid][3], 1);
+        PlayerTextDrawBackgroundColor(playerid, metro_stop_PTD[playerid][3], 255);
+        PlayerTextDrawFont(playerid, metro_stop_PTD[playerid][3], 2);
+        PlayerTextDrawSetProportional(playerid, metro_stop_PTD[playerid][3], 1);
+        PlayerTextDrawSetShadow(playerid, metro_stop_PTD[playerid][3], 0);
+
+        metro_stop_PTD[playerid][4] = CreatePlayerTextDraw(playerid, 105.0000, 366.0000, "следующая_станция:"); // пусто
+        PlayerTextDrawLetterSize(playerid, metro_stop_PTD[playerid][4], 0.2634, 1.7493);
+        PlayerTextDrawAlignment(playerid, metro_stop_PTD[playerid][4], 2);
+        PlayerTextDrawColor(playerid, metro_stop_PTD[playerid][4], -1);
+        PlayerTextDrawSetOutline(playerid, metro_stop_PTD[playerid][4], 1);
+        PlayerTextDrawBackgroundColor(playerid, metro_stop_PTD[playerid][4], 255);
+        PlayerTextDrawFont(playerid, metro_stop_PTD[playerid][4], 2);
+        PlayerTextDrawSetProportional(playerid, metro_stop_PTD[playerid][4], 1);
+        PlayerTextDrawSetShadow(playerid, metro_stop_PTD[playerid][4], 0);
+
+        metro_stop_PTD[playerid][5] = CreatePlayerTextDraw(playerid, 105.0000, 379.0000, "Santa_Maria_Beach"); // пусто
+        PlayerTextDrawLetterSize(playerid, metro_stop_PTD[playerid][5], 0.2634, 1.7493);
+        PlayerTextDrawAlignment(playerid, metro_stop_PTD[playerid][5], 2);
+        PlayerTextDrawColor(playerid, metro_stop_PTD[playerid][5], -5963521);
+        PlayerTextDrawSetOutline(playerid, metro_stop_PTD[playerid][5], 1);
+        PlayerTextDrawBackgroundColor(playerid, metro_stop_PTD[playerid][5], 255);
+        PlayerTextDrawFont(playerid, metro_stop_PTD[playerid][5], 2);
+        PlayerTextDrawSetProportional(playerid, metro_stop_PTD[playerid][5], 1);
+        PlayerTextDrawSetShadow(playerid, metro_stop_PTD[playerid][5], 0);
+
+        metro_stop_PTD[playerid][6] = CreatePlayerTextDraw(playerid, 11.0000, 395.0000, "LD_SPAC:white"); // пусто
+        PlayerTextDrawTextSize(playerid, metro_stop_PTD[playerid][6], 185.0000, 2.0000);
+        PlayerTextDrawAlignment(playerid, metro_stop_PTD[playerid][6], 1);
+        PlayerTextDrawColor(playerid, metro_stop_PTD[playerid][6], -801552641);
+        PlayerTextDrawBackgroundColor(playerid, metro_stop_PTD[playerid][6], 255);
+        PlayerTextDrawFont(playerid, metro_stop_PTD[playerid][6], 4);
+        PlayerTextDrawSetProportional(playerid, metro_stop_PTD[playerid][6], 0);
+        PlayerTextDrawSetShadow(playerid, metro_stop_PTD[playerid][6], 0);
+
+        metro_stop_PTD[playerid][7] = CreatePlayerTextDraw(playerid, 106.0000, 398.0000, "нажмите__'n'"); // пусто
+        PlayerTextDrawLetterSize(playerid, metro_stop_PTD[playerid][7], 0.2634, 1.7493);
+        PlayerTextDrawAlignment(playerid, metro_stop_PTD[playerid][7], 2);
+        PlayerTextDrawColor(playerid, metro_stop_PTD[playerid][7], -1);
+        PlayerTextDrawSetOutline(playerid, metro_stop_PTD[playerid][7], 1);
+        PlayerTextDrawBackgroundColor(playerid, metro_stop_PTD[playerid][7], 255);
+        PlayerTextDrawFont(playerid, metro_stop_PTD[playerid][7], 2);
+        PlayerTextDrawSetProportional(playerid, metro_stop_PTD[playerid][7], 1);
+        PlayerTextDrawSetShadow(playerid, metro_stop_PTD[playerid][7], 0);
+
+        metro_stop_PTD[playerid][8] = CreatePlayerTextDraw(playerid, 106.0000, 413.0000, "если_хотите_выйти_здесь"); // пусто
+        PlayerTextDrawLetterSize(playerid, metro_stop_PTD[playerid][8], 0.2634, 1.7493);
+        PlayerTextDrawAlignment(playerid, metro_stop_PTD[playerid][8], 2);
+        PlayerTextDrawColor(playerid, metro_stop_PTD[playerid][8], -1);
+        PlayerTextDrawSetOutline(playerid, metro_stop_PTD[playerid][8], 1);
+        PlayerTextDrawBackgroundColor(playerid, metro_stop_PTD[playerid][8], 255);
+        PlayerTextDrawFont(playerid, metro_stop_PTD[playerid][8], 2);
+        PlayerTextDrawSetProportional(playerid, metro_stop_PTD[playerid][8], 1);
+        PlayerTextDrawSetShadow(playerid, metro_stop_PTD[playerid][8], 0);
+        }
+
+stock DeleteMetroStopTextdraw(playerid)
+{
+        for(new i; i < sizeof(metro_stop_PTD[]); i++)
+                PlayerTextDrawDestroy(playerid, metro_stop_PTD[playerid][i]);
+}
+
+stock LoadMapping()
+{
+        //========================== [ Маппинг входов в метро ] ========================
+        new metro_enter;
+        metro_enter = CreateDynamicObject(1532, 1586.072143, -2285.100585, 12.519619, 0.000000, 0.000000, 270.000000, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_enter, 1, 16093, "a51_ext", "ws_whitewall2_top", 0x00000000);
+        metro_enter = CreateDynamicObject(1532, 1586.112182, -2288.103515, 12.519619, 0.000000, 0.000000, 450.000000, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_enter, 1, 16093, "a51_ext", "ws_whitewall2_top", 0x00000000);
+        metro_enter = CreateDynamicObject(19483, 1586.088134, -2286.597900, 15.759616, 0.000000, 0.000000, 0.000000, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, 10101, "2notherbuildsfe", "ferry_build14", 0xFFFFFFFF);
+        metro_enter = CreateDynamicObject(19483, 1586.078125, -2286.647949, 15.789620, 0.000000, 0.000000, 180.000000, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterialText(metro_enter, 0, "AIRPORT\nSTATION", 130, "Engravers MT", 80, 1, 0xFF000000, 0x00000000, 1);
+        metro_enter = CreateDynamicObject(1532, 1810.474121, -1878.665771, 12.479620, -0.000082, 0.000000, 90.000190, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_enter, 1, 16093, "a51_ext", "ws_whitewall2_top", 0x00000000);
+        metro_enter = CreateDynamicObject(1532, 1810.434082, -1875.662841, 12.479620, 0.000082, 0.000000, -90.000221, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_enter, 1, 16093, "a51_ext", "ws_whitewall2_top", 0x00000000);
+        metro_enter = CreateDynamicObject(19483, 1810.458129, -1877.168457, 15.719612, 0.000000, 0.000082, 179.999664, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, 10101, "2notherbuildsfe", "ferry_build14", 0xFFFFFFFF);
+        metro_enter = CreateDynamicObject(19483, 1810.468139, -1877.118408, 15.749626, 0.000000, -0.000082, -0.000746, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterialText(metro_enter, 0, "UNITY\nSTATION", 130, "Engravers MT", 80, 1, 0xFF000000, 0x00000000, 1);
+        metro_enter = CreateDynamicObject(1532, 1415.793579, -1664.165405, 12.479620, 0.000022, 0.000000, 89.999870, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_enter, 1, 16093, "a51_ext", "ws_whitewall2_top", 0x00000000);
+        metro_enter = CreateDynamicObject(1532, 1415.753540, -1661.162475, 12.479620, -0.000022, 0.000000, -89.999900, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_enter, 1, 16093, "a51_ext", "ws_whitewall2_top", 0x00000000);
+        metro_enter = CreateDynamicObject(19483, 1415.777587, -1662.668090, 15.719612, 0.000000, -0.000022, 179.999023, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, 10101, "2notherbuildsfe", "ferry_build14", 0xFFFFFFFF);
+        metro_enter = CreateDynamicObject(19483, 1415.787597, -1662.618041, 15.749626, 0.000000, 0.000022, -0.000746, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterialText(metro_enter, 0, "PERSHING SQUARE\nSTATION", 130, "Engravers MT", 55, 1, 0xFF000000, 0x00000000, 1);
+        metro_enter = CreateDynamicObject(1532, 1221.526977, -1428.822387, 12.309617, 0.000091, -0.000029, 179.999450, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_enter, 1, 16093, "a51_ext", "ws_whitewall2_top", 0x00000000);
+        metro_enter = CreateDynamicObject(1532, 1218.524047, -1428.862426, 12.309617, -0.000091, 0.000029, 0.000273, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_enter, 1, 16093, "a51_ext", "ws_whitewall2_top", 0x00000000);
+        metro_enter = CreateDynamicObject(19483, 1220.029663, -1428.838378, 15.549608, -0.000029, -0.000091, -90.001235, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, 10101, "2notherbuildsfe", "ferry_build14", 0xFFFFFFFF);
+        metro_enter = CreateDynamicObject(19483, 1219.979614, -1428.828369, 15.579622, 0.000029, 0.000091, 89.999130, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterialText(metro_enter, 0, "MARKET SQUARE\nSTATION", 130, "Engravers MT", 63, 1, 0xFF000000, 0x00000000, 1);
+        metro_enter = CreateDynamicObject(1532, 938.352050, -1735.412353, 12.479612, 0.000088, -0.000105, -90.301055, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_enter, 1, 16093, "a51_ext", "ws_whitewall2_top", 0x00000000);
+        metro_enter = CreateDynamicObject(1532, 938.376342, -1738.415283, 12.479612, -0.000088, 0.000105, 89.700096, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_enter, 1, 16093, "a51_ext", "ws_whitewall2_top", 0x00000000);
+        metro_enter = CreateDynamicObject(19483, 938.360168, -1736.909667, 15.719600, -0.000105, -0.000088, -0.301169, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, 10101, "2notherbuildsfe", "ferry_build14", 0xFFFFFFFF);
+        metro_enter = CreateDynamicObject(19483, 938.349914, -1736.959594, 15.749614, 0.000105, 0.000088, 179.698699, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterialText(metro_enter, 0, "VERONA BEACH\nSTATION", 130, "Engravers MT", 63, 1, 0xFF000000, 0x00000000, 1);
+        metro_enter = CreateDynamicObject(1532, 475.901336, -1761.598266, 4.439401, 0.000079, -0.000091, -0.301063, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_enter, 1, 16093, "a51_ext", "ws_whitewall2_top", 0x00000000);
+        metro_enter = CreateDynamicObject(1532, 478.904266, -1761.573974, 4.439401, -0.000079, 0.000091, 179.699951, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_enter, 1, 16093, "a51_ext", "ws_whitewall2_top", 0x00000000);
+        metro_enter = CreateDynamicObject(19483, 477.398651, -1761.590209, 7.679389, -0.000091, -0.000079, 89.698753, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, 10101, "2notherbuildsfe", "ferry_build14", 0xFFFFFFFF);
+        metro_enter = CreateDynamicObject(19483, 477.448577, -1761.600463, 7.709403, 0.000091, 0.000079, -90.301239, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterialText(metro_enter, 0, "SANTA MARIA BEACH\nSTATION", 130, "Engravers MT", 54, 1, 0xFF000000, 0x00000000, 1);
+        metro_enter = CreateDynamicObject(1532, 577.269531, -1419.700317, 13.240589, 0.000077, -0.000097, -166.001022, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_enter, 1, 16093, "a51_ext", "ws_whitewall2_top", 0x00000000);
+        metro_enter = CreateDynamicObject(1532, 574.365600, -1420.465576, 13.240589, -0.000077, 0.000097, 13.999937, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_enter, 1, 16093, "a51_ext", "ws_whitewall2_top", 0x00000000);
+        metro_enter = CreateDynamicObject(19483, 575.820556, -1420.078002, 16.480577, -0.000097, -0.000077, -76.001197, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, 10101, "2notherbuildsfe", "ferry_build14", 0xFFFFFFFF);
+        metro_enter = CreateDynamicObject(19483, 575.769653, -1420.080444, 16.510591, 0.000097, 0.000077, 103.998687, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterialText(metro_enter, 0, "RODEO\nSTATION", 130, "Engravers MT", 75, 1, 0xFF000000, 0x00000000, 1);
+        metro_enter = CreateDynamicObject(1532, 1542.609008, -1151.305175, 22.956260, 0.000077, -0.000097, 0.198941, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_enter, 1, 16093, "a51_ext", "ws_whitewall2_top", 0x00000000);
+        metro_enter = CreateDynamicObject(1532, 1545.611572, -1151.254638, 22.956260, -0.000077, 0.000097, -179.800003, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_enter, 1, 16093, "a51_ext", "ws_whitewall2_top", 0x00000000);
+        metro_enter = CreateDynamicObject(19483, 1544.106323, -1151.284057, 26.196250, -0.000097, -0.000077, 90.198722, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, 10101, "2notherbuildsfe", "ferry_build14", 0xFFFFFFFF);
+        metro_enter = CreateDynamicObject(19483, 1544.156250, -1151.293823, 26.226264, 0.000097, 0.000077, -89.801300, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterialText(metro_enter, 0, "COMMERCIAL AREA\nSTATION", 130, "Engravers MT", 55, 1, 0xFF000000, 0x00000000, 1);
+        metro_enter = CreateDynamicObject(1532, 1831.401611, -1303.517456, 12.466885, 0.000086, -0.000090, 90.198890, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_enter, 1, 16093, "a51_ext", "ws_whitewall2_top", 0x00000000);
+        metro_enter = CreateDynamicObject(1532, 1831.351074, -1300.514892, 12.466885, -0.000086, 0.000090, -89.799964, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_enter, 1, 16093, "a51_ext", "ws_whitewall2_top", 0x00000000);
+        metro_enter = CreateDynamicObject(19483, 1831.380493, -1302.020141, 15.706875, -0.000090, -0.000086, -179.801193, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, 10101, "2notherbuildsfe", "ferry_build14", 0xFFFFFFFF);
+        metro_enter = CreateDynamicObject(19483, 1831.390258, -1301.970214, 15.736889, 0.000090, 0.000086, 0.198691, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterialText(metro_enter, 0, "GLEN PARK\nSTATION", 130, "Engravers MT", 67, 1, 0xFF000000, 0x00000000, 1);
+        metro_enter = CreateDynamicObject(1532, 2234.795410, -1124.585571, 24.745012, 0.000082, -0.000069, -27.601087, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_enter, 1, 16093, "a51_ext", "ws_whitewall2_top", 0x00000000);
+        metro_enter = CreateDynamicObject(1532, 2237.475341, -1125.941162, 24.745012, -0.000082, 0.000069, 152.399871, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_enter, 1, 16093, "a51_ext", "ws_whitewall2_top", 0x00000000);
+        metro_enter = CreateDynamicObject(19483, 2236.069580, -1125.445190, 29.045019, -0.000056, -0.000075, 61.798755, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, 10101, "2notherbuildsfe", "ferry_build14", 0xFFFFFFFF);
+        metro_enter = CreateDynamicObject(19483, 2236.108886, -1125.477661, 29.075033, 0.000056, 0.000075, -118.201156, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterialText(metro_enter, 0, "JEFFERSON\nSTATION", 130, "Engravers MT", 75, 1, 0xFF000000, 0x00000000, 1);
+        metro_enter = CreateDynamicObject(1532, 2521.725341, -1299.005615, 33.727428, 0.000070, -0.000090, -90.201042, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_enter, 1, 16093, "a51_ext", "ws_whitewall2_top", 0x00000000);
+        metro_enter = CreateDynamicObject(1532, 2521.755126, -1302.008300, 33.727428, -0.000070, 0.000090, 89.799926, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_enter, 1, 16093, "a51_ext", "ws_whitewall2_top", 0x00000000);
+        metro_enter = CreateDynamicObject(19483, 2521.736328, -1300.502929, 36.967418, -0.000090, -0.000070, -0.201214, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, 10101, "2notherbuildsfe", "ferry_build14", 0xFFFFFFFF);
+        metro_enter = CreateDynamicObject(19483, 2521.726074, -1300.552856, 36.997432, 0.000090, 0.000070, 179.798675, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterialText(metro_enter, 0, "EAST SIDE\nSTATION", 130, "Engravers MT", 80, 1, 0xFF000000, 0x00000000, 1);
+        metro_enter = CreateDynamicObject(1532, 2652.941406, -1627.057617, 9.857587, -1.799974, -0.006408, -90.201118, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_enter, 1, 16093, "a51_ext", "ws_whitewall2_top", 0x00000000);
+        metro_enter = CreateDynamicObject(1532, 2652.971191, -1630.060302, 9.856652, 1.799974, 0.006377, 89.799804, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_enter, 1, 16093, "a51_ext", "ws_whitewall2_top", 0x00000000);
+        metro_enter = CreateDynamicObject(19483, 2653.054199, -1628.554931, 13.095635, -0.006410, 1.799974, -0.201112, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, 10101, "2notherbuildsfe", "ferry_build14", 0xFFFFFFFF);
+        metro_enter = CreateDynamicObject(19483, 2653.044677, -1628.604858, 13.125955, 0.006413, -1.799974, 179.798751, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterialText(metro_enter, 0, "LOS SANTOS FORUM\nSTATION", 130, "Engravers MT", 53, 1, 0xFF000000, 0x00000000, 1);
+        metro_enter = CreateDynamicObject(1532, 2323.742187, -1955.088134, 12.493704, -0.100033, -0.000441, -90.200958, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_enter, 1, 16093, "a51_ext", "ws_whitewall2_top", 0x00000000);
+        metro_enter = CreateDynamicObject(1532, 2323.772216, -1958.090820, 12.493654, 0.100033, 0.000438, 89.799858, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_enter, 1, 16093, "a51_ext", "ws_whitewall2_top", 0x00000000);
+        metro_enter = CreateDynamicObject(19483, 2323.759033, -1956.585449, 15.733674, -0.000441, 0.100033, -0.201212, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, 10101, "2notherbuildsfe", "ferry_build14", 0xFFFFFFFF);
+        metro_enter = CreateDynamicObject(19483, 2323.748535, -1956.635375, 15.763698, 0.000440, -0.100033, 179.798522, -1, -1, -1, 300.00, 300.00); 
+        SetDynamicObjectMaterial(metro_enter, 0, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterialText(metro_enter, 0, "WILLOWFIELD\nSTATION", 130, "Engravers MT", 70, 1, 0xFF000000, 0x00000000, 1);
+        CreateDynamicObject(1897, 1586.132446, -2286.448242, 16.299640, 90.000000, 0.000000, 0.000000, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 1586.132446, -2286.448242, 15.029617, 90.000000, 0.000000, 0.000000, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 1586.132446, -2286.748535, 15.029617, 90.000000, 0.000000, 0.000000, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 1586.132446, -2286.748535, 16.299640, 90.000000, 0.000000, 0.000000, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 1810.413818, -1877.318115, 16.259635, 89.999992, 266.591247, -86.591026, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 1810.413818, -1877.318115, 14.989616, 89.999992, 266.591247, -86.591026, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 1810.413818, -1877.017822, 14.989616, 89.999992, 266.591247, -86.591026, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 1810.413818, -1877.017822, 16.259635, 89.999992, 266.591247, -86.591026, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 1415.733276, -1662.817749, 16.259635, 89.999992, 270.000152, -89.999748, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 1415.733276, -1662.817749, 14.989616, 89.999992, 270.000152, -89.999748, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 1415.733276, -1662.517456, 14.989616, 89.999992, 270.000152, -89.999748, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 1415.733276, -1662.517456, 16.259635, 89.999992, 270.000152, -89.999748, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 1220.179321, -1428.882690, 16.089632, 89.999992, 353.226531, -83.225967, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 1220.179321, -1428.882690, 14.819611, 89.999992, 353.226531, -83.225967, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 1219.879028, -1428.882690, 14.819611, 89.999992, 353.226531, -83.225967, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 1219.879028, -1428.882690, 16.089632, 89.999992, 353.226531, -83.225967, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 938.405273, -1736.760131, 16.259624, 89.999992, 394.533508, -34.832889, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 938.405273, -1736.760131, 14.989605, 89.999992, 394.533508, -34.832889, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 938.403747, -1737.060424, 14.989605, 89.999992, 394.533508, -34.832889, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 938.403747, -1737.060424, 16.259624, 89.999992, 394.533508, -34.832889, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 477.249114, -1761.545043, 8.219412, 89.999992, 522.023315, -72.322708, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 477.249114, -1761.545043, 6.949396, 89.999992, 522.023315, -72.322708, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 477.549407, -1761.546630, 6.949396, 89.999992, 522.023315, -72.322708, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 477.549407, -1761.546630, 8.219412, 89.999992, 522.023315, -72.322708, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 575.976623, -1420.084838, 17.020601, 89.999992, 398.100158, -114.099533, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 575.976623, -1420.084838, 15.750582, 89.999992, 398.100158, -114.099533, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 575.685241, -1420.157470, 15.750582, 89.999992, 398.100158, -114.099533, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 575.685241, -1420.157470, 17.020601, 89.999992, 398.100158, -114.099533, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 1543.956298, -1151.240112, 26.736274, 89.999992, 476.561157, -26.360563, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 1543.956298, -1151.240112, 25.466255, 89.999992, 476.561157, -26.360563, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 1544.256591, -1151.239135, 25.466255, 89.999992, 476.561157, -26.360563, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 1544.256591, -1151.239135, 26.736274, 89.999992, 476.561157, -26.360563, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 1831.336547, -1302.170166, 16.246900, 89.999992, 561.302612, -21.102018, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 1831.336547, -1302.170166, 14.976881, 89.999992, 561.302612, -21.102018, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 1831.335571, -1301.869873, 14.976881, 89.999992, 561.302612, -21.102018, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 1831.335571, -1301.869873, 16.246900, 89.999992, 561.302612, -21.102018, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 2235.958251, -1125.335327, 29.585042, 89.999992, 515.999328, -94.198593, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 2235.958251, -1125.335327, 28.315023, 89.999992, 515.999328, -94.198593, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 2236.223144, -1125.477172, 28.315023, 89.999992, 515.999328, -94.198593, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 2236.223144, -1125.477172, 29.585042, 89.999992, 515.999328, -94.198593, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 2521.781250, -1300.353271, 37.507442, 89.999992, 461.400634, -101.600051, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 2521.781250, -1300.353271, 36.237422, 89.999992, 461.400634, -101.600051, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 2521.780273, -1300.653564, 36.237422, 89.999992, 461.400634, -101.600051, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 2521.780273, -1300.653564, 37.507442, 89.999992, 461.400634, -101.600051, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 2653.115966, -1628.405273, 13.633980, 88.199836, 449.800628, -90.000030, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 2653.076171, -1628.405273, 12.364587, 88.199836, 449.800628, -90.000030, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 2653.075195, -1628.705566, 12.364618, 88.199836, 449.800628, -90.000030, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 2653.114990, -1628.705566, 13.634011, 88.199836, 449.800628, -90.000030, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 2323.804931, -1956.435791, 16.273612, 89.899124, 449.801391, -90.000740, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 2323.802734, -1956.435791, 15.003599, 89.899124, 449.801391, -90.000740, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 2323.801757, -1956.736083, 15.003601, 89.899124, 449.801391, -90.000740, -1, -1, -1, 300.00, 300.00); 
+        CreateDynamicObject(1897, 2323.803710, -1956.736083, 16.273616, 89.899124, 449.801391, -90.000740, -1, -1, -1, 300.00, 300.00);
+        //============================ [ Маппинг вагона метро ] ========================
+        new metro_carriage;
+        metro_carriage = CreateDynamicObject(19455, 3585.588378, 544.450500, 1518.445678, 0.000000, 90.000007, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 12978, "ce_payspray", "sf_spray_floor2", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(19455, 3585.588378, 534.830993, 1518.445678, 0.000000, 90.000007, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 12978, "ce_payspray", "sf_spray_floor2", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(19445, 3583.791259, 544.695739, 1520.272827, 0.000000, 0.000000, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "des_factower", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(19445, 3583.791259, 535.066101, 1520.272827, 0.000000, 0.000000, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "des_factower", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(19848, 3583.547851, 532.119628, 1519.071655, 0.000000, 270.000000, 179.999816, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(3061, 3583.826416, 531.046875, 1519.552368, 0.000000, 0.000060, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 10713, "gayclub_sfs", "CJ_PIZZA_DOOR", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(3061, 3583.915527, 533.156982, 1519.552368, 0.000000, -0.000060, 179.999633, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 10713, "gayclub_sfs", "CJ_PIZZA_DOOR", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(1256, 3584.179199, 528.896362, 1519.151733, 0.000000, -0.000007, 179.999954, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        metro_carriage = CreateDynamicObject(19445, 3583.791259, 525.446960, 1520.272827, 0.000000, 0.000000, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "des_factower", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(19848, 3583.547607, 532.119628, 1519.842285, 0.000000, 90.000030, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(19848, 3583.547851, 538.590270, 1519.071655, 0.000000, 270.000000, 179.999771, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(19848, 3583.547851, 525.638305, 1519.071655, 0.000000, 270.000000, 179.999862, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(19455, 3585.588378, 525.210449, 1518.445678, 0.000000, 90.000007, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 12978, "ce_payspray", "sf_spray_floor2", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(3061, 3583.826416, 537.517517, 1519.552368, 0.000000, 0.000068, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 10713, "gayclub_sfs", "CJ_PIZZA_DOOR", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(3061, 3583.915527, 539.627624, 1519.552368, 0.000000, -0.000068, 179.999588, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 10713, "gayclub_sfs", "CJ_PIZZA_DOOR", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(1256, 3584.179199, 535.367004, 1519.151733, 0.000000, -0.000014, 179.999908, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        metro_carriage = CreateDynamicObject(19848, 3583.547607, 538.590270, 1519.842285, 0.000000, 90.000038, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(19848, 3583.547851, 545.051574, 1519.071655, 0.000000, 270.000000, 179.999679, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(3061, 3583.826416, 543.978820, 1519.552368, 0.000000, 0.000082, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 10713, "gayclub_sfs", "CJ_PIZZA_DOOR", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(3061, 3583.826416, 524.565551, 1519.552368, 0.000000, 0.000052, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 10713, "gayclub_sfs", "CJ_PIZZA_DOOR", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(3061, 3583.915527, 526.675659, 1519.552368, 0.000000, -0.000052, 179.999679, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 10713, "gayclub_sfs", "CJ_PIZZA_DOOR", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(3061, 3583.915527, 546.088928, 1519.552368, 0.000000, -0.000082, 179.999496, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 10713, "gayclub_sfs", "CJ_PIZZA_DOOR", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(1256, 3584.179199, 541.828308, 1519.151733, 0.000000, -0.000029, 179.999816, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        metro_carriage = CreateDynamicObject(19848, 3583.547607, 545.051574, 1519.842285, 0.000000, 90.000053, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(19445, 3587.348388, 525.379577, 1520.272827, 0.000007, -0.000029, 179.999694, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "des_factower", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(19445, 3587.348388, 535.009155, 1520.272827, 0.000007, -0.000029, 179.999694, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "des_factower", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(19848, 3587.591552, 538.566284, 1519.071655, -0.000007, 270.000000, -0.000174, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(3061, 3587.313232, 539.639038, 1519.552368, 0.000007, 0.000029, 179.999694, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 10713, "gayclub_sfs", "CJ_PIZZA_DOOR", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(3061, 3587.223876, 537.528930, 1519.552368, -0.000007, -0.000029, -0.000357, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 10713, "gayclub_sfs", "CJ_PIZZA_DOOR", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(1256, 3584.179199, 522.415039, 1519.151733, 0.000000, 0.000000, 180.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        metro_carriage = CreateDynamicObject(19848, 3583.547607, 525.638305, 1519.842285, 0.000000, 90.000022, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(1256, 3586.960205, 541.789428, 1519.151733, -0.000007, 0.000022, -0.000037, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        metro_carriage = CreateDynamicObject(19445, 3587.348388, 544.638305, 1520.272827, 0.000007, -0.000029, 179.999694, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "des_factower", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(19848, 3587.592041, 538.566284, 1519.842285, 0.000007, 90.000000, 179.999694, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(19848, 3587.591552, 532.095581, 1519.071655, -0.000007, 270.000000, -0.000220, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(19848, 3587.591552, 545.047729, 1519.071655, -0.000007, 270.000000, -0.000128, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(3061, 3587.313232, 533.168334, 1519.552368, 0.000007, 0.000037, 179.999694, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 10713, "gayclub_sfs", "CJ_PIZZA_DOOR", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(3061, 3587.223876, 531.058227, 1519.552368, -0.000007, -0.000037, -0.000403, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 10713, "gayclub_sfs", "CJ_PIZZA_DOOR", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(19848, 3587.592041, 532.095581, 1519.842285, 0.000007, 90.000007, 179.999694, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(19848, 3587.591552, 525.634399, 1519.071655, -0.000007, 270.000000, -0.000311, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(3061, 3587.313232, 526.707153, 1519.552368, 0.000007, 0.000052, 179.999694, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 10713, "gayclub_sfs", "CJ_PIZZA_DOOR", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(3061, 3587.313232, 546.120483, 1519.552368, 0.000007, 0.000022, 179.999694, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 10713, "gayclub_sfs", "CJ_PIZZA_DOOR", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(3061, 3587.223876, 544.010131, 1519.552368, -0.000007, -0.000022, -0.000311, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 10713, "gayclub_sfs", "CJ_PIZZA_DOOR", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(3061, 3587.223876, 524.597045, 1519.552368, -0.000007, -0.000052, -0.000494, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 10713, "gayclub_sfs", "CJ_PIZZA_DOOR", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(1256, 3586.960205, 528.857543, 1519.151733, -0.000007, 0.000000, -0.000174, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        metro_carriage = CreateDynamicObject(19848, 3587.592041, 525.634399, 1519.842285, 0.000007, 90.000022, 179.999694, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(1256, 3586.961181, 535.367004, 1519.151733, 0.000000, -0.000014, 359.999908, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        metro_carriage = CreateDynamicObject(19848, 3587.592041, 545.047729, 1519.842285, 0.000007, 89.999992, 179.999694, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(1256, 3586.970703, 522.415039, 1519.151733, 0.000000, 0.000000, 360.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        metro_carriage = CreateDynamicObject(19445, 3583.791259, 520.566528, 1520.272827, 0.000000, 0.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "des_factower", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(19445, 3583.791259, 548.596069, 1520.272827, 0.000000, 0.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "des_factower", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(19445, 3587.385253, 525.379577, 1520.885253, 0.000007, 42.699966, 179.999694, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "des_factower", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(19455, 3585.588378, 525.210449, 1521.496826, 0.000000, 90.000007, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "vgs_shopwall01_128", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(19445, 3587.385253, 535.012390, 1520.885253, 0.000007, 42.699958, 179.999649, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "des_factower", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(19455, 3585.588378, 534.843261, 1521.496826, 0.000000, 90.000015, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "vgs_shopwall01_128", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(19445, 3587.385253, 544.644836, 1520.885253, 0.000007, 42.699951, 179.999603, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "des_factower", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(19455, 3585.588378, 544.475708, 1521.496826, 0.000000, 90.000022, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "vgs_shopwall01_128", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(19445, 3583.775390, 525.379577, 1520.883056, 0.000007, 42.699966, 359.999694, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "des_factower", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(19445, 3583.775390, 535.009887, 1520.883056, 0.000007, 42.699966, 359.999694, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "des_factower", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(19445, 3583.775390, 544.629821, 1520.883056, 0.000007, 42.699966, 359.999694, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "des_factower", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(1897, 3587.345214, 539.670471, 1519.652343, 0.000000, 0.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "scratchedmetal", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(1897, 3587.345214, 538.580322, 1520.712768, 0.000000, 90.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "scratchedmetal", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(1897, 3587.345214, 537.469604, 1519.652343, 0.000000, 0.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "scratchedmetal", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(1897, 3587.345214, 546.152038, 1519.652343, 0.000007, 0.000000, 89.999977, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "scratchedmetal", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(1897, 3587.345214, 545.061889, 1520.712768, 0.000007, 90.000000, 89.999977, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "scratchedmetal", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(1897, 3587.345214, 543.951171, 1519.652343, 0.000007, 0.000000, 89.999977, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "scratchedmetal", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(1897, 3587.345214, 533.199523, 1519.652343, 0.000014, 0.000000, 89.999954, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "scratchedmetal", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(1897, 3587.345214, 532.109375, 1520.712768, 0.000014, 90.000000, 89.999954, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "scratchedmetal", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(1897, 3587.345214, 530.998657, 1519.652343, 0.000014, 0.000000, 89.999954, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "scratchedmetal", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(1897, 3587.345214, 526.737976, 1519.652343, 0.000022, 0.000000, 89.999931, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "scratchedmetal", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(1897, 3587.345214, 525.647827, 1520.712768, 0.000022, 90.000000, 89.999931, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "scratchedmetal", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(1897, 3587.345214, 524.537109, 1519.652343, 0.000022, 0.000000, 89.999931, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "scratchedmetal", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(1897, 3583.792724, 524.537353, 1519.652343, 0.000014, 0.000000, -90.000061, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "scratchedmetal", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(1897, 3583.792724, 525.627197, 1520.712768, 0.000014, 90.000000, -90.000061, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "scratchedmetal", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(1897, 3583.792724, 526.738037, 1519.652343, 0.000014, 0.000000, -90.000061, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "scratchedmetal", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(1897, 3583.792724, 531.013366, 1519.652343, -0.000007, 0.000000, -89.999992, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "scratchedmetal", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(1897, 3583.792724, 532.103210, 1520.712768, -0.000007, 90.000000, -89.999992, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "scratchedmetal", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(1897, 3583.792724, 533.214050, 1519.652343, -0.000007, 0.000000, -89.999992, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "scratchedmetal", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(1897, 3583.792724, 537.484558, 1519.652343, -0.000014, 0.000000, -89.999969, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "scratchedmetal", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(1897, 3583.792724, 538.574401, 1520.712768, -0.000014, 90.000000, -89.999969, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "scratchedmetal", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(1897, 3583.792724, 539.685241, 1519.652343, -0.000014, 0.000000, -89.999969, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "scratchedmetal", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(1897, 3583.792724, 543.945739, 1519.652343, -0.000022, 0.000000, -89.999946, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "scratchedmetal", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(1897, 3583.792724, 545.035583, 1520.712768, -0.000022, 90.000000, -89.999946, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "scratchedmetal", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(1897, 3583.792724, 546.146423, 1519.652343, -0.000022, 0.000000, -89.999946, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "scratchedmetal", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(19173, 3587.245849, 541.832397, 1520.252075, 0.000000, 0.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 4828, "airport3_las", "gallery01_law", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 14789, "ab_sfgymmain", "gymwinodow3", 0x00000000);
+        metro_carriage = CreateDynamicObject(19173, 3587.245849, 535.421264, 1520.252075, 0.000000, 0.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 4828, "airport3_las", "gallery01_law", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 14789, "ab_sfgymmain", "gymwinodow3", 0x00000000);
+        metro_carriage = CreateDynamicObject(19173, 3587.245849, 528.850830, 1520.252075, 0.000000, 0.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 4828, "airport3_las", "gallery01_law", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 14789, "ab_sfgymmain", "gymwinodow3", 0x00000000);
+        metro_carriage = CreateDynamicObject(19173, 3587.245849, 522.420104, 1520.252075, 0.000000, 0.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 4828, "airport3_las", "gallery01_law", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 14789, "ab_sfgymmain", "gymwinodow3", 0x00000000);
+        metro_carriage = CreateDynamicObject(19173, 3583.894042, 522.420104, 1520.252075, 0.000000, 0.000000, 270.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 4828, "airport3_las", "gallery01_law", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 14789, "ab_sfgymmain", "gymwinodow3", 0x00000000);
+        metro_carriage = CreateDynamicObject(19173, 3583.894042, 528.861083, 1520.252075, 0.000000, 0.000000, 270.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 4828, "airport3_las", "gallery01_law", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 14789, "ab_sfgymmain", "gymwinodow3", 0x00000000);
+        metro_carriage = CreateDynamicObject(19173, 3583.894042, 535.301879, 1520.252075, 0.000000, 0.000000, 270.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 4828, "airport3_las", "gallery01_law", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 14789, "ab_sfgymmain", "gymwinodow3", 0x00000000);
+        metro_carriage = CreateDynamicObject(19173, 3583.894042, 541.772460, 1520.252075, 0.000000, 0.000000, 270.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 4828, "airport3_las", "gallery01_law", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 14789, "ab_sfgymmain", "gymwinodow3", 0x00000000);
+        metro_carriage = CreateDynamicObject(7313, 3583.793212, 539.926330, 1520.806152, 43.000076, 0.000000, 89.999931, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 11631, "mp_ranchcut", "mpCJ_Black_metal", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 11631, "mp_ranchcut", "mpcj_speaker_6", 0x00000000);
+        metro_carriage = CreateDynamicObject(7313, 3583.725585, 539.927978, 1520.681884, 40.000000, 0.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 1, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterialText(metro_carriage, 0, "{A1A1A1}WELCOME TO LOS SANTOS", 120, "Ariel", 40, 0, 0x00000000, 0x00000000, 0);
+        metro_carriage = CreateDynamicObject(7313, 3583.793212, 527.226562, 1520.806152, 43.000083, 0.000000, 89.999908, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 11631, "mp_ranchcut", "mpCJ_Black_metal", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 11631, "mp_ranchcut", "mpcj_speaker_6", 0x00000000);
+        metro_carriage = CreateDynamicObject(7313, 3583.725585, 527.228210, 1520.681884, 40.000003, 0.000000, 89.999977, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 1, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterialText(metro_carriage, 0, "{A1A1A1}WELCOME TO LOS SANTOS", 120, "Ariel", 40, 0, 0x00000000, 0x00000000, 0);
+        metro_carriage = CreateDynamicObject(7313, 3587.368896, 527.668945, 1520.806152, 43.000068, -0.000009, -90.000068, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 11631, "mp_ranchcut", "mpCJ_Black_metal", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 11631, "mp_ranchcut", "mpcj_speaker_6", 0x00000000);
+        metro_carriage = CreateDynamicObject(7313, 3587.436279, 527.667236, 1520.681884, 39.999984, -0.000009, -90.000015, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 1, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterialText(metro_carriage, 0, "{A1A1A1}WELCOME TO LOS SANTOS", 120, "Ariel", 40, 0, 0x00000000, 0x00000000, 0);
+        metro_carriage = CreateDynamicObject(7313, 3587.368896, 539.290222, 1520.806152, 43.000049, -0.000009, -90.000022, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 11631, "mp_ranchcut", "mpCJ_Black_metal", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 11631, "mp_ranchcut", "mpcj_speaker_6", 0x00000000);
+        metro_carriage = CreateDynamicObject(7313, 3587.436279, 539.288513, 1520.681884, 39.999965, -0.000009, -89.999969, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 1, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterialText(metro_carriage, 0, "{A1A1A1}WELCOME TO LOS SANTOS", 120, "Ariel", 40, 0, 0x00000000, 0x00000000, 0);
+        metro_carriage = CreateDynamicObject(18066, 3587.010009, 533.784301, 1521.137451, 42.700031, 0.000000, 270.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 11631, "mp_ranchcut", "mpCJ_SPEAKER4", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(18066, 3584.123291, 532.253845, 1521.145019, 43.200027, 0.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 11631, "mp_ranchcut", "mpCJ_SPEAKER4", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(3061, 3586.081542, 548.471191, 1519.702270, 0.000000, 0.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 12805, "ce_loadbay", "sw_waredoor", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(18762, 3585.577880, 523.134765, 1521.782836, 990.000000, 270.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 12978, "ce_payspray", "sf_spray_floor2", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(18762, 3585.577880, 528.134704, 1521.782836, 990.000000, 270.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 12978, "ce_payspray", "sf_spray_floor2", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(18762, 3585.577880, 533.134521, 1521.782836, 990.000000, 270.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 12978, "ce_payspray", "sf_spray_floor2", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(18762, 3585.577880, 538.124145, 1521.782836, 990.000000, 270.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 12978, "ce_payspray", "sf_spray_floor2", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(1256, 3586.960205, 548.130004, 1519.151733, -0.000007, 0.000022, -0.000037, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        metro_carriage = CreateDynamicObject(2674, 3586.031494, 532.743347, 1518.541625, 0.000000, 0.000000, -50.100009, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(2674, 3585.326660, 541.942993, 1518.541625, 0.000000, 0.000000, 51.900005, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(2670, 3586.497314, 535.174316, 1518.621704, 0.000000, 0.000000, -66.099990, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, -1, "none", "none", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 3, 19297, "matlights", "invisible", 0x00000000);
+        metro_carriage = CreateDynamicObject(1256, 3586.962158, 549.739929, 1519.153686, -0.000007, 0.000022, -0.000037, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        metro_carriage = CreateDynamicObject(11707, 3583.946044, 530.789672, 1519.731567, 0.000000, 90.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 2, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 3, 19297, "matlights", "invisible", 0x00000000);
+        metro_carriage = CreateDynamicObject(11707, 3583.946044, 533.389953, 1519.731567, 0.000000, 90.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 2, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 3, 19297, "matlights", "invisible", 0x00000000);
+        metro_carriage = CreateDynamicObject(11707, 3583.946044, 537.260437, 1519.731567, 0.000000, 90.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 2, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 3, 19297, "matlights", "invisible", 0x00000000);
+        metro_carriage = CreateDynamicObject(11707, 3583.946044, 539.870605, 1519.731567, 0.000000, 90.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 2, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 3, 19297, "matlights", "invisible", 0x00000000);
+        metro_carriage = CreateDynamicObject(11707, 3583.946044, 543.720947, 1519.731567, 0.000000, 90.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 2, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 3, 19297, "matlights", "invisible", 0x00000000);
+        metro_carriage = CreateDynamicObject(11707, 3583.946044, 546.341003, 1519.731567, 0.000000, 90.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 2, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 3, 19297, "matlights", "invisible", 0x00000000);
+        metro_carriage = CreateDynamicObject(11707, 3587.188964, 546.371032, 1519.731567, 0.000000, 90.000000, 630.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 2, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 3, 19297, "matlights", "invisible", 0x00000000);
+        metro_carriage = CreateDynamicObject(11707, 3587.188964, 543.760986, 1519.731567, 0.000000, 90.000000, 630.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 2, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 3, 19297, "matlights", "invisible", 0x00000000);
+        metro_carriage = CreateDynamicObject(11707, 3587.188964, 539.910400, 1519.731567, 0.000000, 90.000000, 630.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 2, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 3, 19297, "matlights", "invisible", 0x00000000);
+        metro_carriage = CreateDynamicObject(11707, 3587.188964, 537.270385, 1519.731567, 0.000000, 90.000000, 630.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 2, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 3, 19297, "matlights", "invisible", 0x00000000);
+        metro_carriage = CreateDynamicObject(11707, 3587.188964, 533.439392, 1519.731567, 0.000000, 90.000000, 630.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 2, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 3, 19297, "matlights", "invisible", 0x00000000);
+        metro_carriage = CreateDynamicObject(11707, 3587.188964, 530.789428, 1519.731567, 0.000000, 90.000000, 630.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 2, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 3, 19297, "matlights", "invisible", 0x00000000);
+        metro_carriage = CreateDynamicObject(11707, 3587.188964, 526.968566, 1519.731567, 0.000000, 90.000000, 630.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 2, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 3, 19297, "matlights", "invisible", 0x00000000);
+        metro_carriage = CreateDynamicObject(11707, 3587.188964, 524.328369, 1519.731567, 0.000000, 90.000000, 630.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 2, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 3, 19297, "matlights", "invisible", 0x00000000);
+        metro_carriage = CreateDynamicObject(2684, 3584.288330, 529.021362, 1518.974975, 270.000000, 0.000000, 105.300010, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 5114, "beach_las2", "ganggraf04_LA", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(2684, 3587.115234, 521.633666, 1518.974975, 270.000000, 0.000000, -80.400032, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 5114, "beach_las2", "ganggraf04_LA", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(2684, 3583.979980, 536.150329, 1519.287231, -12.061990, 0.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 5390, "glenpark7_lae", "ganggraf01_LA", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(2684, 3583.973388, 522.687744, 1519.316528, -12.061990, 175.799819, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 5390, "glenpark7_lae", "ganggraf01_LA", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(18762, 3585.577880, 543.124206, 1521.782836, 990.000000, 270.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 12978, "ce_payspray", "sf_spray_floor2", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(18762, 3585.577880, 548.114196, 1521.782836, 990.000000, 270.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 12978, "ce_payspray", "sf_spray_floor2", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(3061, 3585.090576, 520.680847, 1519.702270, 0.000000, 0.000000, 270.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 12805, "ce_loadbay", "sw_waredoor", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(1256, 3584.179443, 549.739868, 1519.151733, 0.000000, 0.000014, 179.999786, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        metro_carriage = CreateDynamicObject(1256, 3584.177490, 548.130004, 1519.153686, 0.000000, 0.000014, 179.999786, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 16640, "a51", "ws_metalpanel1", 0xFFFFFFFF);
+        SetDynamicObjectMaterial(metro_carriage, 1, 16640, "a51", "ws_metalpanel1", 0x00000000);
+        metro_carriage = CreateDynamicObject(16023, 3585.562500, 538.580627, 1519.622314, 0.000000, 0.000000, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0xFFD0D0D0);
+        SetDynamicObjectMaterial(metro_carriage, 1, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 2, 16640, "a51", "ws_metalpanel1", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(16023, 3585.562500, 538.580627, 1522.073364, 0.000000, 0.000000, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0xFFD0D0D0);
+        SetDynamicObjectMaterial(metro_carriage, 1, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 2, 16640, "a51", "ws_metalpanel1", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(16023, 3585.562500, 545.061462, 1519.622314, 0.000000, 0.000007, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0xFFD0D0D0);
+        SetDynamicObjectMaterial(metro_carriage, 1, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 2, 16640, "a51", "ws_metalpanel1", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(16023, 3585.562500, 545.061462, 1522.073364, 0.000000, 0.000007, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0xFFD0D0D0);
+        SetDynamicObjectMaterial(metro_carriage, 1, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 2, 16640, "a51", "ws_metalpanel1", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(16023, 3585.562500, 532.060058, 1519.622314, 0.000000, 0.000014, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0xFFD0D0D0);
+        SetDynamicObjectMaterial(metro_carriage, 1, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 2, 16640, "a51", "ws_metalpanel1", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(16023, 3585.562500, 532.060058, 1522.073364, 0.000000, 0.000014, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0xFFD0D0D0);
+        SetDynamicObjectMaterial(metro_carriage, 1, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 2, 16640, "a51", "ws_metalpanel1", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(16023, 3585.562500, 525.650268, 1519.622314, 0.000000, 0.000022, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0xFFD0D0D0);
+        SetDynamicObjectMaterial(metro_carriage, 1, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 2, 16640, "a51", "ws_metalpanel1", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(16023, 3585.562500, 525.650268, 1522.073364, 0.000000, 0.000022, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0xFFD0D0D0);
+        SetDynamicObjectMaterial(metro_carriage, 1, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 2, 16640, "a51", "ws_metalpanel1", 0xFFD0D0D0);
+        metro_carriage = CreateDynamicObject(927, 3583.861328, 520.664978, 1518.641235, 0.000000, 0.000000, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, -1, "none", "none", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(2288, 3584.727050, 546.984069, 1520.967895, 89.999992, 89.999992, -89.999992, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 5042, "bombshop_las", "kb_spray_light1", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2288, 3586.408691, 546.984069, 1520.967895, 89.999992, 89.999992, -89.999992, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 5042, "bombshop_las", "kb_spray_light1", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2288, 3584.727050, 544.953430, 1520.967895, 89.999992, 89.999992, -89.999977, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 5042, "bombshop_las", "kb_spray_light1", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2288, 3586.408691, 544.953430, 1520.967895, 89.999992, 89.999992, -89.999977, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 5042, "bombshop_las", "kb_spray_light1", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2288, 3584.727050, 542.902648, 1520.967895, 89.999992, 90.000000, -89.999969, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 5042, "bombshop_las", "kb_spray_light1", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2288, 3586.408691, 542.902648, 1520.967895, 89.999992, 90.000000, -89.999969, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 5042, "bombshop_las", "kb_spray_light1", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2288, 3584.727050, 540.721252, 1520.967895, 89.999992, 90.000015, -89.999961, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 5042, "bombshop_las", "kb_spray_light1", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2288, 3586.408691, 540.721252, 1520.967895, 89.999992, 90.000015, -89.999961, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 5042, "bombshop_las", "kb_spray_light1", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2288, 3584.727050, 538.561157, 1520.967895, 89.999992, 90.000030, -89.999961, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 5042, "bombshop_las", "kb_spray_light1", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2288, 3586.408691, 538.561157, 1520.967895, 89.999992, 90.000030, -89.999961, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 5042, "bombshop_las", "kb_spray_light1", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2288, 3584.727050, 536.460388, 1520.967895, 89.999992, 90.000045, -89.999961, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 5042, "bombshop_las", "kb_spray_light1", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2288, 3586.408691, 536.460388, 1520.967895, 89.999992, 90.000045, -89.999961, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 5042, "bombshop_las", "kb_spray_light1", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2288, 3584.727050, 534.510009, 1520.967895, 89.999992, 90.000061, -89.999961, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 5042, "bombshop_las", "kb_spray_light1", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2288, 3586.408691, 534.510009, 1520.967895, 89.999992, 90.000061, -89.999961, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 5042, "bombshop_las", "kb_spray_light1", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2288, 3584.727050, 532.589355, 1520.967895, 89.999992, 90.000076, -89.999961, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 5042, "bombshop_las", "kb_spray_light1", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2288, 3586.408691, 532.589355, 1520.967895, 89.999992, 90.000076, -89.999961, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 5042, "bombshop_las", "kb_spray_light1", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2288, 3584.727050, 530.569274, 1520.967895, 89.999992, 90.000106, -89.999961, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 5042, "bombshop_las", "kb_spray_light1", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2288, 3586.408691, 530.569274, 1520.967895, 89.999992, 90.000106, -89.999961, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 5042, "bombshop_las", "kb_spray_light1", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2288, 3584.727050, 528.699035, 1520.967895, 89.999992, 90.000137, -89.999961, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 5042, "bombshop_las", "kb_spray_light1", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2288, 3586.408691, 528.699035, 1520.967895, 89.999992, 90.000137, -89.999961, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 5042, "bombshop_las", "kb_spray_light1", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2288, 3584.727050, 526.677490, 1520.967895, 89.999992, 90.000122, -89.999961, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 5042, "bombshop_las", "kb_spray_light1", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2288, 3586.408691, 526.677490, 1520.967895, 89.999992, 90.000122, -89.999961, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 5042, "bombshop_las", "kb_spray_light1", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2288, 3584.727050, 524.667114, 1520.967895, 89.999992, 90.000137, -89.999961, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 5042, "bombshop_las", "kb_spray_light1", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2288, 3586.408691, 524.667114, 1520.967895, 89.999992, 90.000137, -89.999961, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 5042, "bombshop_las", "kb_spray_light1", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2288, 3584.727050, 522.786499, 1520.967895, 89.999992, 90.000152, -89.999961, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 5042, "bombshop_las", "kb_spray_light1", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2288, 3586.408691, 522.786499, 1520.967895, 89.999992, 90.000152, -89.999961, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0x00000000);
+        SetDynamicObjectMaterial(metro_carriage, 1, 5042, "bombshop_las", "kb_spray_light1", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2684, 3583.905273, 543.416015, 1519.332031, 0.000000, 4.599926, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 14801, "lee_bdupsmain", "Bdup_graf5", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(2684, 3583.905273, 546.628540, 1519.613037, 0.000000, 10.499929, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 14801, "lee_bdupsmain", "Bdup_graf1", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(2684, 3587.234619, 530.578857, 1519.410644, 0.000000, 4.599926, 270.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 14801, "lee_bdupsmain", "Bdup_graf3", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(2684, 3587.234619, 548.003295, 1519.801513, 0.000000, 4.599926, 270.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 14801, "lee_bdupsmain", "Bdup_graf2", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(2697, 3584.153076, 545.628784, 1521.111816, 42.700004, 270.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, -1, "none", "none", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(2697, 3584.153076, 522.357482, 1521.111816, 42.700004, 270.000000, 90.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, -1, "none", "none", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(2659, 3586.990478, 546.801940, 1521.127197, 43.000000, 0.000000, 270.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, -1, "none", "none", 0xFFE2E2E2);
+        metro_carriage = CreateDynamicObject(2657, 3587.009765, 544.620117, 1521.110229, 43.000000, 270.000000, 270.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, -1, "none", "none", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(2657, 3584.164306, 534.759948, 1521.124633, 43.000000, 270.000000, 450.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, -1, "none", "none", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(2658, 3586.986328, 522.229858, 1521.138427, 42.610004, 90.000000, 270.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, -1, "none", "none", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(2684, 3587.234619, 533.772277, 1519.245727, 0.000000, 179.299896, 270.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 4981, "wiresetc2_las", "ganggraf03_LA", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(2684, 3583.902587, 540.221679, 1519.324462, 0.000000, 175.399871, 450.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 4981, "wiresetc2_las", "ganggraf03_LA", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(2674, 3587.032714, 525.555847, 1518.541625, 0.000000, 0.000000, 6.599987, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(2674, 3583.781738, 522.843811, 1518.541625, 0.000000, 0.000000, 6.599987, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, 19297, "matlights", "invisible", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(927, 3583.638916, 548.466003, 1521.012695, 0.000000, 90.000000, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, -1, "none", "none", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(2663, 3586.911376, 546.984924, 1519.161865, 0.000000, 0.000000, -5.099997, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, -1, "none", "none", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(2059, 3583.696777, 526.935302, 1518.531616, 0.000000, 0.000000, 155.099990, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, -1, "none", "none", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(2059, 3587.032958, 521.532043, 1518.542724, 0.000000, -0.500000, 145.599990, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, -1, "none", "none", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(1210, 3584.284912, 542.400939, 1519.088989, 61.699954, 0.000000, 0.000000, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, -1, "none", "none", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(2961, 3586.384277, 520.655334, 1519.842773, 0.000000, -0.000014, 179.999908, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, -1, "none", "none", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(2962, 3586.384765, 520.656066, 1519.835815, 0.000000, -0.000014, 179.999908, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, -1, "none", "none", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(2961, 3584.783203, 548.498107, 1519.842773, -0.000014, -0.000014, -0.000060, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, -1, "none", "none", 0xFFFFFFFF);
+        metro_carriage = CreateDynamicObject(2962, 3584.782714, 548.497619, 1519.835815, -0.000014, -0.000014, -0.000060, -1, -1, -1, 300.00, 300.00);
+        SetDynamicObjectMaterial(metro_carriage, 0, -1, "none", "none", 0xFFFFFFFF);
+        CreateDynamicObject(11745, 3586.805419, 523.285827, 1518.671752, 0.000000, 0.000000, 10.900000, -1, -1, -1, 300.00, 300.00);
+        CreateDynamicObject(19624, 3586.409179, 530.157653, 1518.951416, 0.000000, 0.000000, -109.099990, -1, -1, -1, 300.00, 300.00);
+}
